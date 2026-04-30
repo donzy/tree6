@@ -35,8 +35,16 @@ func init() {
 
 func runRecord() {
 	fmt.Println("Recording command started.")
-	fmt.Println("Press Ctrl+Shift+B to start recording.")
-	fmt.Println("Press Ctrl+Shift+E to stop recording.")
+	fmt.Println()
+	fmt.Println("IMPORTANT: On macOS, this program requires accessibility permissions.")
+	fmt.Println("If you don't see any keyboard events, please grant accessibility")
+	fmt.Println("permissions in System Preferences > Privacy & Security > Accessibility")
+	fmt.Println()
+	fmt.Println("Hotkeys:")
+	fmt.Println("  Ctrl+Alt+B = Start recording")
+	fmt.Println("  Ctrl+Alt+E = Stop recording")
+	fmt.Println("  Ctrl+C = Exit program")
+	fmt.Println()
 
 	r := recorder.NewRecorder()
 	r.Start()

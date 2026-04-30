@@ -42,6 +42,7 @@ type Recorder struct {
 	outputDir     string
 	ctrlPressed   bool
 	shiftPressed  bool
+	altPressed    bool
 	hotkeyMu      sync.Mutex
 }
 
@@ -52,11 +53,20 @@ func NewRecorder() *Recorder {
 		outputDir:    "./recordings",
 		ctrlPressed:  false,
 		shiftPressed: false,
+		altPressed:   false,
 	}
 }
 
 func (r *Recorder) Start() {
 	_ = os.MkdirAll(r.outputDir, 0755)
+
+	fmt.Println("Global hook starting...")
+	fmt.Println("Listening for keyboard events...")
+	fmt.Println("Hotkeys:")
+	fmt.Println("  Ctrl+Alt+B = Start recording")
+	fmt.Println("  Ctrl+Alt+E = Stop recording")
+	fmt.Println("  Ctrl+C = Exit program")
+	fmt.Println()
 
 	go r.setupGlobalHook()
 
@@ -73,6 +83,8 @@ func (r *Recorder) setupGlobalHook() {
 	evChan := hook.Start()
 	defer hook.End()
 
+	fmt.Println("Global hook started, waiting for events...")
+
 	for ev := range evChan {
 		switch ev.Kind {
 		case hook.KeyDown:
@@ -83,40 +95,54 @@ func (r *Recorder) setupGlobalHook() {
 			r.handleMouseEvent(ev)
 		}
 	}
+
+	fmt.Println("Global hook channel closed")
 }
 
 func (r *Recorder) handleKeyDown(ev hook.Event) {
 	r.hotkeyMu.Lock()
 	defer r.hotkeyMu.Unlock()
 
+	keyChar := string(rune(ev.Keychar))
+	if keyChar == "" {
+		keyChar = fmt.Sprintf("KeyCode:%d", ev.Rawcode)
+	}
+	fmt.Printf("[DEBUG] KeyDown: rawcode=%d, keychar=%c, key=%s\n", ev.Rawcode, ev.Keychar, keyChar)
+
 	isCtrl := isCtrlKey(ev.Rawcode)
 	isShift := isShiftKey(ev.Rawcode)
+	isAlt := isAltKey(ev.Rawcode)
 	isB := ev.Rawcode == 11
 	isE := ev.Rawcode == 14
 
 	if isCtrl {
 		r.ctrlPressed = true
+		fmt.Println("[DEBUG] Ctrl pressed")
 	}
 	if isShift {
 		r.shiftPressed = true
+		fmt.Println("[DEBUG] Shift pressed")
+	}
+	if isAlt {
+		r.altPressed = true
+		fmt.Println("[DEBUG] Alt pressed")
 	}
 
-	if r.ctrlPressed && r.shiftPressed {
+	fmt.Printf("[DEBUG] State: ctrl=%v, alt=%v, shift=%v\n", r.ctrlPressed, r.altPressed, r.shiftPressed)
+
+	if r.ctrlPressed && r.altPressed {
 		if isB {
+			fmt.Println("[DEBUG] Ctrl+Alt+B detected - Starting recording")
 			r.StartRecording()
 			return
 		} else if isE {
+			fmt.Println("[DEBUG] Ctrl+Alt+E detected - Stopping recording")
 			r.StopRecording()
 			return
 		}
 	}
 
-	if r.IsRecording() && !isCtrl && !isShift {
-		keyChar := string(rune(ev.Keychar))
-		if keyChar == "" {
-			keyChar = fmt.Sprintf("KeyCode:%d", ev.Rawcode)
-		}
-
+	if r.IsRecording() && !isCtrl && !isShift && !isAlt {
 		event := RecordEvent{
 			Timestamp: time.Now(),
 			Type:      "keyboard",
@@ -144,12 +170,19 @@ func (r *Recorder) handleKeyUp(ev hook.Event) {
 
 	isCtrl := isCtrlKey(ev.Rawcode)
 	isShift := isShiftKey(ev.Rawcode)
+	isAlt := isAltKey(ev.Rawcode)
 
 	if isCtrl {
 		r.ctrlPressed = false
+		fmt.Println("[DEBUG] Ctrl released")
 	}
 	if isShift {
 		r.shiftPressed = false
+		fmt.Println("[DEBUG] Shift released")
+	}
+	if isAlt {
+		r.altPressed = false
+		fmt.Println("[DEBUG] Alt released")
 	}
 }
 
@@ -159,6 +192,10 @@ func isCtrlKey(rawcode uint16) bool {
 
 func isShiftKey(rawcode uint16) bool {
 	return rawcode == 56 || rawcode == 60
+}
+
+func isAltKey(rawcode uint16) bool {
+	return rawcode == 58 || rawcode == 61
 }
 
 func (r *Recorder) handleMouseEvent(ev hook.Event) {
@@ -222,7 +259,11 @@ func (r *Recorder) StartRecording() {
 	}
 	r.events = append(r.events, startEvent)
 
-	fmt.Println("Recording started. Press Ctrl+Shift+E to stop.")
+	fmt.Println("========================================")
+	fmt.Println("Recording started.")
+	fmt.Println("All keyboard and mouse events will be recorded.")
+	fmt.Println("Press Ctrl+Alt+E to stop recording.")
+	fmt.Println("========================================")
 }
 
 func (r *Recorder) StopRecording() {
@@ -241,8 +282,11 @@ func (r *Recorder) StopRecording() {
 	}
 	r.events = append(r.events, stopEvent)
 
+	fmt.Println("========================================")
 	fmt.Println("Recording stopped.")
+	fmt.Printf("Total events recorded: %d\n", len(r.events))
 	r.saveEvents()
+	fmt.Println("========================================")
 }
 
 func (r *Recorder) addEvent(event RecordEvent) {
@@ -256,15 +300,19 @@ func (r *Recorder) getActiveWindowInfo() (*WindowInfo, error) {
 tell application "System Events"
 	set frontApp to first application process whose frontmost is true
 	set appName to name of frontApp
-	set frontWindow to front window of frontApp
-	set windowName to name of frontWindow
-	set windowPos to position of frontWindow
-	set windowSize to size of frontWindow
-	set windowX to item 1 of windowPos
-	set windowY to item 2 of windowPos
-	set windowWidth to item 1 of windowSize
-	set windowHeight to item 2 of windowSize
-	return appName & ", " & windowName & ", " & windowX & ", " & windowY & ", " & windowWidth & ", " & windowHeight
+	try
+		set frontWindow to front window of frontApp
+		set windowName to name of frontWindow
+		set windowPos to position of frontWindow
+		set windowSize to size of frontWindow
+		set windowX to item 1 of windowPos
+		set windowY to item 2 of windowPos
+		set windowWidth to item 1 of windowSize
+		set windowHeight to item 2 of windowSize
+		return appName & ", " & windowName & ", " & windowX & ", " & windowY & ", " & windowWidth & ", " & windowHeight
+	on error
+		return appName & ", , 0, 0, 0, 0"
+	end try
 end tell
 `
 
@@ -335,7 +383,7 @@ func (r *Recorder) saveEvents() {
 				"y": %d,
 				"width": %d,
 				"height": %d
-			}`, event.WindowInfo.AppName, event.WindowInfo.WindowName,
+			}`, escapeJSON(event.WindowInfo.AppName), escapeJSON(event.WindowInfo.WindowName),
 				event.WindowInfo.X, event.WindowInfo.Y,
 				event.WindowInfo.Width, event.WindowInfo.Height)
 		}
@@ -361,10 +409,19 @@ func (r *Recorder) saveEvents() {
 			"screenshot": %s
 		}%s
 		`, event.Timestamp.Format(time.RFC3339Nano), event.Type,
-			event.Key, event.MouseButton, event.MouseX, event.MouseY,
+			escapeJSON(event.Key), escapeJSON(event.MouseButton), event.MouseX, event.MouseY,
 			windowInfoStr, screenshotStr, comma)
 	}
 	fmt.Fprintf(file, "]\n")
 
 	fmt.Printf("Events saved to: %s\n", filename)
+}
+
+func escapeJSON(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "\"", "\\\"")
+	s = strings.ReplaceAll(s, "\n", "\\n")
+	s = strings.ReplaceAll(s, "\r", "\\r")
+	s = strings.ReplaceAll(s, "\t", "\\t")
+	return s
 }
